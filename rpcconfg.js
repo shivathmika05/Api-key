@@ -5,7 +5,6 @@ import express from "express";
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-// Start dummy HTTP server to keep Render service alive
 app.get("/", (req, res) => {
   res.send("Retool RPC Server is running!");
 });
@@ -24,6 +23,7 @@ const rpc = new RetoolRPC({
   logLevel: 'info',
 });
 
+// ✅ 1st endpoint — Gets BME Auth Key
 rpc.register({
   name: 'getSegmentsWithApiKey',
   arguments: {
@@ -32,19 +32,10 @@ rpc.register({
       required: true,
       description: 'Zeta Account ID',
     },
-    apiKey: {
-      type: 'string',
-      required: true,
-      description: 'API Key for Basic authentication',
-    },
   },
-  implementation: async (args, context) => {
-    const { accountId, apiKey } = args;
-
+  implementation: async ({ accountId }) => {
     const url = `https://phoenix.api.zetaglobal.net/v1/site_configs?account_id=${accountId}`;
-    const username = 'api';
-    const password = apiKey;
-    const encodedAuth = Buffer.from(`${username}:${password}`).toString('base64');
+    const encodedAuth = Buffer.from(`api:5bc21b0483dc2722f99f3abdf3aa8bdd`).toString("base64");
 
     try {
       const response = await axios.get(url, {
@@ -54,14 +45,13 @@ rpc.register({
         },
       });
 
-      console.log("Data received:", response.data);
       return {
         success: true,
         accountId,
-        data: response.data,
+        bmeAuthKey: response.data?.bme_auth_key,
+        siteConfig: response.data,
       };
     } catch (error) {
-      console.error("API call failed:", error);
       return {
         success: false,
         message: error.message,
@@ -69,6 +59,32 @@ rpc.register({
         error: error.response?.data || {},
       };
     }
+  },
+});
+
+// ✅ 2nd endpoint — Uses API key to get site config, extract auth, then fetch segments
+rpc.register({
+  name: 'getSegmentMetadataFromBME',
+  arguments: {
+    apiKey: {
+      type: 'string',
+      required: true,
+      description: 'API key to use for segment metadata lookup',
+    },
+  },
+  implementation: async ({ apiKey }) => {
+    const siteConfigUrl = `https://phoenix.api.zetaglobal.net/v1/segments`;
+    const dynamicAuth = Buffer.from(`api:${apiKey}`).toString("base64");
+
+    // try {
+      const siteConfigResp = await axios.get(siteConfigUrl, {
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Basic ${dynamicAuth}`,
+        },
+      });
+
+    return siteConfigResp.data
   },
 });
 
